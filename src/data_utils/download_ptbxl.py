@@ -78,14 +78,27 @@ def download_ptbxl(data_dir="./ptb-xl", high_res_only=True):
 
     # Download per patient folder
     for patient_prefix, ecgs in tqdm(patient_groups.items(), desc=f"Downloading {subfolder}"):
-        patient_dir = subfolder_path / patient_prefix
-        patient_dir.mkdir(exist_ok=True)
+        # patient_dir = subfolder_path / patient_prefix
+        # patient_dir.mkdir(exist_ok=True)
         for ecg_id in ecgs:
             # Files: <ecg_id>_hr.dat/.hea (hr for 500Hz)
-            suffix = "_hr" if high_res_only else "_lr"
+            if high_res_only and not ecg_id.endswith("_hr"):
+                continue
+            # suffix = "_hr" if high_res_only else "_lr"
+            resolution_folder, mid_folder, file_name = ecg_id.split("/")
+
+            batch_dir = subfolder_path / mid_folder
+            batch_dir.mkdir(exist_ok=True)
             for ext in [".dat", ".hea"]:
-                file_name = f"{ecg_id}{suffix}{ext}"
-                download_file(f"{base_url}/{subfolder}/{patient_prefix}/{file_name}", patient_dir / file_name)
+                file_name_with_extension = f"{file_name}{ext}" # e.g. '00001_hr.dat'
+                download_file(url=f"{base_url}/{resolution_folder}/{mid_folder}/{file_name_with_extension}",
+                              target_path=subfolder_path / mid_folder / file_name_with_extension)
+                # Polite delay
+                # time.sleep(1)
+                # Alternative: Download into patient folders
+                # patient_dir = subfolder_path / patient_prefix
+                # patient_dir.mkdir(exist_ok=True)
+                #download_file(f"{base_url}/{file_name}", patient_dir / file_name["/"][-1])
 
     print(f"PTB-XL ({'high-res' if high_res_only else 'full'}) ready in {data_dir.resolve()}!")
     print(f"Total size: Check with 'du -sh {data_dir}'")
