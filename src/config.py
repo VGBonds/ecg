@@ -18,8 +18,8 @@ project_root = os.path.dirname(os.path.dirname(__file__))
 
 # PTB-XL dataset paths
 ptb_xl_data_folder = os.path.join(project_root, "data", "ptb-xl")
-
-
+ptb_xl_transformed_data_folder = os.path.join(project_root, "data", "ptb-xl-transformed")
+processed_ptb_xl_data_folder = os.path.join(project_root, "data", "ptb-xl-processed")
 
 
 ##################### . OLD CONFIG. KEEP FOR C-P

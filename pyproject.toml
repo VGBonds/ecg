@@ -1,0 +1,18 @@
+# pyproject.toml
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ecg"
+version = "0.1.0"
+description = "ECG Signal Processing Library"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "VGBonds" }]
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+
