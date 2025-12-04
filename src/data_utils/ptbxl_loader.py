@@ -81,7 +81,7 @@ def load_and_transform_ptbxl(
 
         for ecg_id, row in tqdm(df.iterrows(), total=len(df)):
             # ----- Load raw signal -----
-            path = records_root / f"{ecg_id//1000:05d}" / f"{ecg_id:05d}_hr"
+            path = records_root / f"{(ecg_id//1000)*1000:05d}" / f"{ecg_id:05d}_hr"
             try:
                 sig, _ = wfdb.rdsamp(str(path))
                 sig = sig.T.astype(np.float32)      # (12, 5000)
@@ -164,6 +164,7 @@ def load_and_transform_ptbxl(
 
 if __name__ == "__main__":
     # Quick test with 1000 samples each (remove limits for full run)
-    load_and_transform_ptbxl(data_root=Path(config.ptb_xl_data_folder),
-                             output_dir=Path(config.processed_ptb_xl_data_folder),
-                             max_samples_per_split=1000)
+    all_signal, all_meta, stats = load_and_transform_ptbxl(
+        data_root=Path(config.ptb_xl_data_folder),
+        output_dir=Path(config.processed_ptb_xl_data_folder),
+        max_samples_per_split=1000)
