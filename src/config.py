@@ -1,6 +1,6 @@
 import os
-
 import torch
+from pathlib import Path
 
 
 
@@ -14,25 +14,27 @@ hf_token = os.environ['HF_TOKEN']
 login(token=hf_token)
 
 # get the project root folder
-project_root = os.path.dirname(os.path.dirname(__file__))
+project_root = Path(os.path.dirname(os.path.dirname(__file__)))
 
 # PTB-XL dataset paths
-ptb_xl_data_folder = os.path.join(project_root, "data", "ptb-xl")
-ptb_xl_transformed_data_folder = os.path.join(project_root, "data", "ptb-xl-transformed")
-processed_ptb_xl_data_folder = os.path.join(project_root, "data", "ptb-xl-processed")
+ptb_xl_data_folder = project_root / "data" / "ptb-xl"
+ptb_xl_transformed_data_folder = project_root / "data" / "ptb-xl-transformed"
+processed_ptb_xl_data_folder = project_root / "data" / "ptb-xl-processed"
 
+embeddings_folder = project_root / "data" / "embeddings"
+embeddings_folder.mkdir(parents=True, exist_ok=True)
 
 ##################### . OLD CONFIG. KEEP FOR C-P
 # Dataset ID and cache directory for the NIH Chest X-ray Pneumonia dataset
 dataset_id = "orvile/brain-cancer-mri-dataset"
-dataset_cache_directory = os.path.join(project_root, "data", "bc_mri")
+dataset_cache_directory = project_root / "data" / "bc_mri"
 
 
 # Model ID,  cache directory for storing pre-trained models and fine-tuned versions
 base_model_id = "google/medgemma-4b-it"
-model_folder_base = os.path.join(project_root, "models", "medgemma-4b-it")
-model_folder_bmri_ft_adapter = os.path.join(project_root, "models", "medgemma-4b-it-brain-mri-adapter")
-model_folder_bmri_ft_full = os.path.join(project_root, "models", "medgemma-4b-it-nct-brain-mri-merged")
+model_folder_base = project_root / "models", "medgemma-4b-it"
+model_folder_bmri_ft_adapter = project_root / "models" / "medgemma-4b-it-brain-mri-adapter"
+model_folder_bmri_ft_full = project_root / "models" / "medgemma-4b-it-nct-brain-mri-merged"
 # Model loading keyword arguments
 model_kwargs = dict(
     attn_implementation="eager",

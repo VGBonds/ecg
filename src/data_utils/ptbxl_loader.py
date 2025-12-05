@@ -47,8 +47,8 @@ def get_superclass(scp_code: str) -> str:
 
 
 def load_and_transform_ptbxl(
-    data_root: Path = Path("./ptb-xl"),
-    output_dir: Path = Path("./processed_ptbxl"),
+    data_root: Path,
+    output_dir: Path,
     max_samples_per_split: int = None,   # Set to e.g. 1000 for quick tests, None for full
     target_sr: int = 500,                # 500 or 100
 ):
@@ -112,6 +112,7 @@ def load_and_transform_ptbxl(
             labels.append(onehot)
 
         # Save
+        all_signals[split_name] = signals
         signals_tensor = torch.stack(signals)                     # (N, 12, 5000) or (N, 12, 1000)
         torch.save(signals_tensor, output_dir / f"{split_name}_signals.pt")
 
@@ -165,6 +166,6 @@ def load_and_transform_ptbxl(
 if __name__ == "__main__":
     # Quick test with 1000 samples each (remove limits for full run)
     all_signal, all_meta, stats = load_and_transform_ptbxl(
-        data_root=Path(config.ptb_xl_data_folder),
-        output_dir=Path(config.processed_ptb_xl_data_folder),
+        data_root=config.ptb_xl_data_folder,
+        output_dir=config.processed_ptb_xl_data_folder,
         max_samples_per_split=1000)

@@ -12,7 +12,7 @@ import requests
 from tqdm import tqdm
 import time  # For polite delays
 
-def download_file(url, target_path, max_retries=3):
+def download_file(url:str, target_path:Path, max_retries:int=3):
     if target_path.exists():
         print(f"Already exists: {target_path.name}")
         return True
@@ -35,8 +35,11 @@ def download_file(url, target_path, max_retries=3):
             time.sleep(5)
     return False
 
-def download_ptbxl(data_dir="./ptb-xl", high_res_only=True):
-    data_dir = Path(data_dir)
+def download_ptbxl(
+        data_dir:Path=Path("./ptb-xl"),
+        high_res_only:bool=True):
+
+    data_dir = data_dir
     data_dir.mkdir(exist_ok=True)
     base_url = "https://physionet.org/files/ptb-xl/1.0.3"
 
