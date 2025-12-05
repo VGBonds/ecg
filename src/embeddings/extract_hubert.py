@@ -5,7 +5,7 @@ from tqdm import tqdm
 import config
 import argparse
 
-SPLIT="test"  # "train" | "valid" | "test"
+SPLIT="train"  # "train" | "valid" | "test"
 
 
 @torch.no_grad()
@@ -51,7 +51,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--save_to",
         type=Path,
-        default=config.embeddings_folder / str(SPLIT + "_" + "embeddings.pt"),
+        default=config.embeddings_folder / str("hubert_" + SPLIT + "_" + "embeddings.pt"),
         help="Path to save embeddings .pt file (default: %(default)s)"
     )
     parser.add_argument(
