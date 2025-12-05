@@ -8,6 +8,7 @@ import torch
 import wfdb
 import matplotlib.pyplot as plt
 import seaborn as sns
+import config
 
 # ------------------------------------------------------------------
 # 2025 GOLD-STANDARD DIAGNOSTIC SUPERCLASS MAPPING
@@ -145,6 +146,9 @@ def load_and_transform_ptbxl(
         successful_ids = df.index[:len(signals)]
         meta_df = df.loc[successful_ids].copy()
         meta_df["label_vector"] = labels
+        # Save as JSON strings to preserve array structure in CSV
+        meta_df["label_vector_string"] = [json.dumps(vec.tolist()) for vec in labels]
+
         meta_df.to_csv(output_dir / f"{split_name}_meta.csv")
 
         all_signals[split_name] = signals_tensor
@@ -153,7 +157,7 @@ def load_and_transform_ptbxl(
         print(f"→ {split_name}: {len(signals)} saved | dropped {dropped}")
 
     # Stats
-    all_labels = np.vstack([all_meta[k]["label_vector"].tolist() for k in all_meta])
+    all_labels = np.vstack([all_meta[k]["label_vector"].tolist() for k in all_meta.keys()])
     counts = all_labels.sum(axis=0).astype(int)
     stats = {
         "total_samples": {k: len(v) for k, v in all_signals.items()},
@@ -182,9 +186,9 @@ def load_and_transform_ptbxl(
 if __name__ == "__main__":
     # Benchmark mode (default)
     load_and_transform_ptbxl(
-        data_root=Path("/path/to/ptb-xl"),
-        output_dir=Path("data/processed_ptbxl"),
-        max_samples_per_split=1000,
+        data_root=config.ptb_xl_data_folder,
+        output_dir=config.processed_ptb_xl_data_folder,
+        max_samples_per_split=None,
         include_rhythm_as_abnormal=False,
     )
 

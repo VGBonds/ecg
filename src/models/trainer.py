@@ -54,10 +54,13 @@ def train_head(
         head.eval()
         all_probs = []
         all_true  = []
+        val_loss = 0.0
         with torch.no_grad():
             for x_batch, y_batch in loaders["val"]:
                 x_batch = x_batch.to(device)
                 logits = head(x_batch)
+                v_loss = criterion(logits, y_batch.to(device))
+                val_loss += v_loss.item()
                 all_probs.append(torch.sigmoid(logits).cpu().numpy())
                 all_true.append(y_batch.numpy())
 
@@ -66,7 +69,7 @@ def train_head(
         auc   = roc_auc_score(true, probs, average="macro")
         f1    = f1_score(true, (probs > 0.5).astype(int), average="macro")
 
-        print(f"Epoch {epoch+1:02d} • Loss {epoch_loss/len(loaders['train']):.4f} • Val AUC {auc:.4f} • F1 {f1:.4f}")
+        print(f"Epoch {epoch+1:02d} • Loss {epoch_loss/len(loaders['train']):.4f} • Val Loss {val_loss/len(loaders['val']):.4f} • Val AUC {auc:.4f} • F1 {f1:.4f}")
 
         if auc > best_auc:
             best_auc = auc
