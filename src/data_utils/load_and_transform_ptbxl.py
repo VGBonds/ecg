@@ -47,16 +47,44 @@ RHYTHM_DISORDERS = {
     'SARRH', 'SBRAD', 'STACH', 'SVARR', 'PACE'
 }
 
+# Challenge-style mappings
+ACUTE_MI_CLASSES = ['AMI', 'ASMI', 'ALMI', 'INJAS', 'INJAL']  # acute only
+RHYTHM_MAPS = {
+    'AFIB': 'AFIB/AFL', 'AFLT': 'AFIB/AFL',
+    'STACH': 'TACHY', 'SVTAC': 'TACHY', 'PSVT': 'TACHY',
+    'SBRAD': 'BRADY',
+    'PAC': 'PAC', 'PVC': 'PVC',
+}
+
 def get_diagnostic_superclass(code: str) -> str | None:
     return DIAGNOSTIC_MAPPING.get(code.strip().upper())
 
+def derive_superclasses(scp_codes_list, scp_df=None):
+    """Challenge-style: Use scp_statements if available, else derive."""
+    superclasses = set()
+    for code in scp_codes_list:
+        if scp_df is not None and code in scp_df.index:
+            superclass = scp_df.loc[code, 'diagnostic_class']
+            if pd.notna(superclass):
+                superclasses.add(superclass)
+        # Fallback derive (for new CSV)
+        else:
+            sc = get_diagnostic_superclass(code)
+            if sc:
+                superclasses.add(sc)
+    return list(superclasses)
+
+
 def load_and_transform_ptbxl(
-    data_root: Path,
-    output_dir: Path,
-    max_samples_per_split: int = None,
-    target_sr: int = 500,
-    include_rhythm_as_abnormal: bool = False,   # ← clinical switch
+        data_root: Path,
+        output_dir: Path,
+        max_samples_per_split: int = None,
+        target_sr: int = 500,
+        clinical_mode: bool = False,  # Switch: True = force NORM=0 on abnormals + add RHYTHM
+        new_challenge_mode: bool = False,  # Use https://github.com/physionetchallenges/python-example-2024/tree/main challenge logic
+        scp_df_path=None,  # Optional old scp_statements with superclass col
 ):
+
     output_dir.mkdir(exist_ok=True)
     records_root = data_root / "records500"
 
@@ -74,21 +102,33 @@ def load_and_transform_ptbxl(
             splits[k] = splits[k].head(max_samples_per_split)
 
     # Dynamic class list
-    BASE_CLASSES = ['CD', 'HYP', 'MI', 'NORM', 'STTC']
-    CLASSES = BASE_CLASSES + ['RHYTHM'] if include_rhythm_as_abnormal else BASE_CLASSES
+    if scp_df_path is not None:
+        scp_df = pd.read_csv(scp_df_path, index_col=0)  # For old mapping
+        scp_df = scp_df[scp_df['diagnostic']==1] # Keep only diagnostic class
+    else:
+        scp_df = None
+
+    CLASSES = ['NORM', 'Acute MI', 'Old MI', 'STTC', 'CD', 'HYP', 'PAC', 'PVC', 'AFIB/AFL', 'TACHY'] \
+        if (clinical_mode or new_challenge_mode) else ['NORM', 'MI', 'STTC', 'CD', 'HYP']  # Simplified for now; expand as needed
+    # CLASSES = ['NORM', 'Acute MI', 'Old MI', 'STTC', 'CD', 'HYP', 'PAC', 'PVC', 'AFIB/AFL', 'TACHY',
+    #            'BRADY'] if (clinical_mode or new_challenge_mode) else ['NORM', 'MI', 'STTC', 'CD',
+    #                                            'HYP']  # Simplified for now; expand as needed
 
     all_signals = {}
     all_meta    = {}
-
     for split_name, df in splits.items():
-        print(f"\n=== Processing {split_name} ({len(df)} samples) | Rhythm flag: {include_rhythm_as_abnormal} ===")
+        print(f"\n=== Processing {split_name} ({len(df)} samples) | Clinical mode: {clinical_mode} ===")
         signals = []
-        labels  = []
+        labels_numeric = []
 
         dropped = 0
+
+        implicit_normal = []
+        skipped_ecgs = []
+
         for ecg_id, row in tqdm(df.iterrows(), total=len(df)):
             # Load signal
-            path = records_root / f"{(ecg_id//1000)*1000:05d}" / f"{ecg_id:05d}_hr"
+            path = records_root / f"{(ecg_id // 1000) * 1000:05d}" / f"{ecg_id:05d}_hr"
             try:
                 sig, _ = wfdb.rdsamp(str(path))
                 sig = sig.T.astype(np.float32)
@@ -96,7 +136,6 @@ def load_and_transform_ptbxl(
                 print(f"Failed to load {ecg_id}: {e}")
                 dropped += 1
                 continue
-
             # Optional downsample to 100 Hz
             if target_sr == 100:
                 from scipy.signal import decimate
@@ -104,65 +143,92 @@ def load_and_transform_ptbxl(
 
             # Z-normalize per lead
             sig = (sig - sig.mean(axis=1, keepdims=True)) / (sig.std(axis=1, keepdims=True) + 1e-8)
-            signals.append(torch.from_numpy(sig))
+            # signals.append(torch.from_numpy(sig))
 
-            # Parse labels
+            # Process labels
             scp_dict = eval(row["scp_codes"])
             positive_codes = [code for code, score in scp_dict.items() if score > 0]
+            scp_codes_list = positive_codes
 
-            diagnostic_superclasses = []
-            has_rhythm = False
+            superclasses = derive_superclasses(scp_codes_list, scp_df)
+            # if not superclasses:
+            #     print(f"Warning: No superclass found for ECG {ecg_id} with SCP codes {scp_codes_list}")
+            # New Challenge logic
+            superclasses_challenge = []
+            if 'NORM' in scp_codes_list or 'NORM' in superclasses:
+                superclasses_challenge.append('NORM')
+            if any(c in scp_codes_list for c in ACUTE_MI_CLASSES):
+                superclasses_challenge.append('Acute MI')
+            elif 'MI' in superclasses:
+                superclasses_challenge.append('Old MI')
+            if 'STTC' in superclasses:
+                superclasses_challenge.append('STTC')
+            if 'CD' in superclasses:
+                superclasses_challenge.append('CD')
+            if 'HYP' in superclasses:
+                superclasses_challenge.append('HYP')
 
-            for code in positive_codes:
-                sc = get_diagnostic_superclass(code)
-                if sc:
-                    diagnostic_superclasses.append(sc)
-                if code in RHYTHM_DISORDERS:
-                    has_rhythm = True
+            # Rhythm append (challenge-style)
+            if 'PAC' in scp_codes_list:
+                superclasses_challenge.append('PAC')
+            if 'PVC' in scp_codes_list:
+                superclasses_challenge.append('PVC')
+            if 'AFIB' in scp_codes_list or 'AFLT' in scp_codes_list:
+                superclasses_challenge.append('AFIB/AFL')
+            if any(c in scp_codes_list for c in ['STACH', 'SVTAC', 'PSVT']):
+                superclasses_challenge.append('TACHY')
+            # Removed as there are 0 examples in PTB-XL
+            # if 'SBRAD' in scp_codes_list:
+            #     superclasses_challenge.append('BRADY')
 
-            diagnostic_superclasses = list(set(diagnostic_superclasses))
+            # All-negative
+            if  clinical_mode and not superclasses_challenge:
+                superclasses_challenge = ['NORM']
+                implicit_normal.append(ecg_id)
 
-            # Enforce NORM exclusivity
-            if 'NORM' in diagnostic_superclasses and len(diagnostic_superclasses) > 1:
-                diagnostic_superclasses.remove('NORM')
-            if not diagnostic_superclasses and 'NORM' not in {c.upper() for c in positive_codes}:
-                diagnostic_superclasses = ['NORM']
+            # Clinical mode: Force NORM=0 if abnormal
+            if clinical_mode and any(l != 'NORM' for l in superclasses_challenge):
+                superclasses_challenge = [l for l in superclasses_challenge if l != 'NORM']
 
-            final_classes = diagnostic_superclasses.copy()
-            if include_rhythm_as_abnormal and has_rhythm:
-                final_classes.append('RHYTHM')
-
+            # One-hot (adjust CLASSES to match labels)
             onehot = np.zeros(len(CLASSES), dtype=np.float32)
-            for cls in final_classes:
-                if cls in CLASSES:
-                    onehot[CLASSES.index(cls)] = 1.0
-            labels.append(onehot)
+            superclasses_to_use = superclasses_challenge if (new_challenge_mode or clinical_mode) else superclasses
+            use_example = False
+            for l in superclasses_to_use:
+                if l in CLASSES:
+                    onehot[CLASSES.index(l)] = 1.0
+                    use_example = True
+            if use_example:
+                labels_numeric.append(onehot)
+                signals.append(torch.from_numpy(sig))
+            else:
+                skipped_ecgs.append(ecg_id)
+                dropped += 1
 
         # Save
-
         signals_tensor = torch.stack(signals)                     # (N, 12, 5000) or (N, 12, 1000)
         torch.save(signals_tensor, output_dir / f"{split_name}_signals.pt")
 
         successful_ids = df.index[:len(signals)]
         meta_df = df.loc[successful_ids].copy()
-        meta_df["label_vector"] = labels
+        meta_df["label_vector"] = labels_numeric
         # Save as JSON strings to preserve array structure in CSV
-        meta_df["label_vector_string"] = [json.dumps(vec.tolist()) for vec in labels]
+        meta_df["label_vector_string"] = [json.dumps(vec.tolist()) for vec in labels_numeric]
 
         meta_df.to_csv(output_dir / f"{split_name}_meta.csv")
 
         all_signals[split_name] = signals_tensor
         all_meta[split_name] = meta_df
 
-        print(f"→ {split_name}: {len(signals)} saved | dropped {dropped}")
+        print(f"→ {split_name}: {len(signals)} saved | dropped {dropped} | implicit normal {len(implicit_normal)} | removed non-labeled {len(skipped_ecgs)}")
 
     # Stats
+    print("\n=== Dataset Statistics ===")
     all_labels = np.vstack([all_meta[k]["label_vector"].tolist() for k in all_meta.keys()])
     counts = all_labels.sum(axis=0).astype(int)
     stats = {
         "total_samples": {k: len(v) for k, v in all_signals.items()},
         "classes": CLASSES,
-        "include_rhythm_as_abnormal": include_rhythm_as_abnormal,
         "label_counts": {c: int(n) for c, n in zip(CLASSES, counts)},
     }
 
@@ -172,7 +238,7 @@ def load_and_transform_ptbxl(
     # Bar plot
     plt.figure(figsize=(8, 5))
     sns.barplot(x=CLASSES, y=counts)
-    plt.title(f"PTB-XL Distribution (Rhythm={'ON' if include_rhythm_as_abnormal else 'OFF'})")
+    plt.title(f"PTB-XL Distribution (classes={'clinical' if clinical_mode else 'challenge'})")
     plt.ylabel("Number of ECGs")
     plt.savefig(output_dir / "label_distribution.png", dpi=150, bbox_inches="tight")
     plt.close()
@@ -189,7 +255,10 @@ if __name__ == "__main__":
         data_root=config.ptb_xl_data_folder,
         output_dir=config.processed_ptb_xl_data_folder,
         max_samples_per_split=None,
-        include_rhythm_as_abnormal=False,
+        target_sr = 500,
+        clinical_mode=False,
+        new_challenge_mode=False,
+        scp_df_path= config.ptb_xl_data_folder / "scp_statements.csv" #config.ptb_xl_data_folder / "scp_statements.csv",  None
     )
 
     # Clinical mode (uncomment when ready)

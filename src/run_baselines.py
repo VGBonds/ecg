@@ -46,20 +46,23 @@ train_head(train_emb, train_lbl,
 
 # 2. Small MLP
 print("\n=== MLP (256→128) ===")
-mlp_head = ClassificationHead(input_dim, hidden_dims=[256, 128])
+mlp_head = ClassificationHead(input_dim,
+                              hidden_dims=[256, 128], dropout=0.25,
+                              num_classes=train_lbl.shape[1])
 train_head(train_emb, train_lbl,
            val_emb,   val_lbl,
            test_emb,  test_lbl,
            batch_size=128,
+           lr=1e-3,
            head=mlp_head,
            save_path="hubert_mlp.pt")
 
 
-# Optional: test set evaluation of the best model
-best_head = ClassificationHead(input_dim, hidden_dims=[256, 128])
-best_head.load_state_dict(torch.load("hubert_mlp.pt"))
-best_head.eval()
-with torch.no_grad():
-    test_prob = torch.sigmoid(best_head(test_emb.to(best_head.fc.weight.device))).cpu().numpy()
-    test_auc = roc_auc_score(test_lbl, test_prob, average="macro")
-    print(f"\nTEST SET macro AUC: {test_auc:.4f}")
+# # Optional: test set evaluation of the best model
+# best_head = ClassificationHead(input_dim, hidden_dims=[256, 128])
+# best_head.load_state_dict(torch.load("hubert_mlp.pt"))
+# best_head.eval()
+# with torch.no_grad():
+#     test_prob = torch.sigmoid(best_head(test_emb.to(device))).cpu().numpy()
+#     test_auc = roc_auc_score(test_lbl, test_prob, average="macro")
+#     print(f"\nTEST SET macro AUC: {test_auc:.4f}")

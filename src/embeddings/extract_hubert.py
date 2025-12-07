@@ -5,7 +5,7 @@ from tqdm import tqdm
 import config
 import argparse
 
-SPLIT="train"  # "train" | "valid" | "test"
+SPLITS=["train", "valid", "test"]
 
 
 @torch.no_grad()
@@ -38,48 +38,48 @@ def extract_hubert_embeddings(
 
 
 if __name__ == "__main__":
+    for split in SPLITS:
+        parser = argparse.ArgumentParser(description="Extract HuBERT-ECG Embeddings")
 
-    parser = argparse.ArgumentParser(description="Extract HuBERT-ECG Embeddings")
+        # provide Path defaults using Path(...)
+        parser.add_argument(
+            "--signals_pt",
+            type=Path,
+            default= config.processed_ptb_xl_data_folder / str(split + "_" + "signals.pt"),
+            help="Path to input signals .pt file (default: %(default)s)"
+        )
+        parser.add_argument(
+            "--save_to",
+            type=Path,
+            default=config.embeddings_folder / str("hubert_" + split + "_" + "embeddings.pt"),
+            help="Path to save embeddings .pt file (default: %(default)s)"
+        )
+        parser.add_argument(
+            "--model_size",
+            type=str,
+            default="large",
+            choices=["small", "base", "large"],
+            help="HuBERT-ECG model size (default: %(default)s)"
+        )
+        parser.add_argument(
+            "--batch_size",
+            type=int,
+            default=32,
+            help="Batch size for extraction (default: %(default)s)"
+        )
+        parser.add_argument(
+            "--device",
+            type=str,
+            default="cuda" if torch.cuda.is_available() else "cpu",
+            help="Device to use (default: %(default)s)"
+        )
 
-    # provide Path defaults using Path(...)
-    parser.add_argument(
-        "--signals_pt",
-        type=Path,
-        default= config.processed_ptb_xl_data_folder / str(SPLIT + "_" + "signals.pt"),
-        help="Path to input signals .pt file (default: %(default)s)"
-    )
-    parser.add_argument(
-        "--save_to",
-        type=Path,
-        default=config.embeddings_folder / str("hubert_" + SPLIT + "_" + "embeddings.pt"),
-        help="Path to save embeddings .pt file (default: %(default)s)"
-    )
-    parser.add_argument(
-        "--model_size",
-        type=str,
-        default="base",
-        choices=["small", "base", "large"],
-        help="HuBERT-ECG model size (default: %(default)s)"
-    )
-    parser.add_argument(
-        "--batch_size",
-        type=int,
-        default=32,
-        help="Batch size for extraction (default: %(default)s)"
-    )
-    parser.add_argument(
-        "--device",
-        type=str,
-        default="cuda" if torch.cuda.is_available() else "cpu",
-        help="Device to use (default: %(default)s)"
-    )
+        args = parser.parse_args()
 
-    args = parser.parse_args()
-
-    extract_hubert_embeddings(
-        signals_pt=args.signals_pt,
-        save_to=args.save_to,
-        model_size=args.model_size,
-        batch_size=args.batch_size,
-        device=args.device
-    )
+        extract_hubert_embeddings(
+            signals_pt=args.signals_pt,
+            save_to=args.save_to,
+            model_size=args.model_size,
+            batch_size=args.batch_size,
+            device=args.device
+        )
