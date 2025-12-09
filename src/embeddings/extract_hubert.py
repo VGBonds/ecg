@@ -36,6 +36,37 @@ def extract_hubert_embeddings(
     print(f"Saved HuBERT-{model_size} embeddings → {save_to} | shape {embeddings.shape}")
 
 
+@torch.no_grad()
+def extract_hubert_per_lead(
+    signals_pt: Path,
+    save_to: Path,
+    model_size: str = "base",
+    batch_size: int = 16,        # smaller because 12× larger
+    device: str = "cuda" if torch.cuda.is_available() else "cpu"
+):
+    model = AutoModel.from_pretrained(f"Edoardo-BS/hubert-ecg-{model_size}", trust_remote_code=True)
+    model.eval().to(device)
+
+    signals = torch.load(signals_pt, map_location=device)   # (N, 12, 5000)
+    N, L, T = signals.shape
+
+    all_emb = []
+    for i in tqdm(range(0, N, batch_size)):
+        batch = signals[i:i+batch_size].to(device)          # (B, 12, 5000)
+        B = batch.shape[0]
+        batch = batch.reshape(B * L, T)                     # (B×12, 5000)
+
+        hidden = model(batch, output_hidden_states=True).last_hidden_state
+        pooled = hidden.mean(dim=1)                         # (B×12, 768)
+
+        pooled = pooled.reshape(B, L, -1)                   # (B, 12, 768)
+        all_emb.append(pooled.cpu())
+
+    embeddings = torch.cat(all_emb, dim=0)                   # (N, 12, 768)
+    torch.save(embeddings, save_to)
+    print(f"Per-lead HuBERT embeddings saved: {embeddings.shape} → {save_to}")
+
+
 
 if __name__ == "__main__":
     for split in SPLITS:
@@ -64,7 +95,7 @@ if __name__ == "__main__":
         parser.add_argument(
             "--batch_size",
             type=int,
-            default=32,
+            default=16,
             help="Batch size for extraction (default: %(default)s)"
         )
         parser.add_argument(
@@ -76,10 +107,11 @@ if __name__ == "__main__":
 
         args = parser.parse_args()
 
-        extract_hubert_embeddings(
+        extract_hubert_per_lead(
             signals_pt=args.signals_pt,
             save_to=args.save_to,
             model_size=args.model_size,
             batch_size=args.batch_size,
             device=args.device
         )
+

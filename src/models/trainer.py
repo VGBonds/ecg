@@ -92,8 +92,8 @@ def train_head(
 
         print(f"Epoch {epoch+1:02d} • Loss {epoch_loss/len(loaders['train']):.4f} • Val Loss {val_loss/len(loaders['val']):.4f} • Val AUC {auc:.4f} • F1 {f1:.4f}")
 
-        if auc > best_auc:
-        #if f1 > best_f1:
+        #if auc > best_auc:
+        if f1 > best_f1:
             best_f1 = f1
             best_auc = auc
             torch.save(head.state_dict(), save_path)
