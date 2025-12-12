@@ -38,27 +38,28 @@ else:
 emb_dim = train_emb.shape[-1]
 print(f"Embedding dimension: {emb_dim}")
 
-# # 1. Linear probe (no hidden layers)
-# print("\n=== Linear probe ===")
-# linear_head = ClassificationHead(input_dim=flat_input_dim, hidden_dims=[])
-# train_head(train_emb, train_lbl,
-#            val_emb,   val_lbl,
-#            test_emb,  test_lbl,
-#            head=linear_head,
-#            batch_size=128,
-#            save_path="hubert_linear.pt")
+# 1. Linear probe (no hidden layers)
+print("\n=== Linear probe ===")
+linear_head = ClassificationHead(input_dim=flat_input_dim, hidden_dims=[])
+train_head(train_emb, train_lbl,
+           val_emb,   val_lbl,
+           test_emb,  test_lbl,
+           lr=2e-4,
+           head=linear_head,
+           batch_size=128,
+           save_path="hubert_linear.pt")
 
 
 # # 2. Small MLP
 # print("\n=== MLP (256→128) ===")
 # mlp_head = ClassificationHead(input_dim=flat_input_dim,
-#                               hidden_dims=[512, 256, 128], dropout=0.25,
+#                               hidden_dims=[512, 256, 128], dropout=0.5,
 #                               num_classes=train_lbl.shape[1])
 # train_head(train_emb, train_lbl,
 #            val_emb,   val_lbl,
 #            test_emb,  test_lbl,
 #            batch_size=128,
-#            lr=1e-3,
+#            lr=2e-4,
 #            head=mlp_head,
 #            save_path="hubert_mlp.pt")
 
@@ -95,25 +96,25 @@ print(f"Embedding dimension: {emb_dim}")
 #            head=LeadFusion_head,
 #            save_path="hubert_mlp.pt")
 
-# 5 yet another Transformer Lead Fusion Head
-print("\n=== Transformer Lead Fusion Head ===")
-head = TransformerFusionHead_2(
-    emb_dim=emb_dim,
-    hidden_dim=128,        # 192 or 256 — both work, 192 is faster/safer
-    heads=8,
-    dropout=0.25, #0.1
-    attn_dropout=0.05, #0.1
-)
-train_head(
-    train_emb, train_lbl,
-    val_emb, val_lbl,
-    test_emb, test_lbl,
-    head=head,
-    lr=2e-4,
-    weight_decay=1e-2,     # crucial with high-dim input
-    epochs=150,
-    patience=25,
-)
+# # 5 yet another Transformer Lead Fusion Head
+# print("\n=== Transformer Lead Fusion Head ===")
+# head = TransformerFusionHead_2(
+#     emb_dim=emb_dim,
+#     hidden_dim=128,        # 192 or 256 — both work, 192 is faster/safer
+#     heads=8,
+#     dropout=0.25, #0.1
+#     attn_dropout=0.05, #0.1
+# )
+# train_head(
+#     train_emb, train_lbl,
+#     val_emb, val_lbl,
+#     test_emb, test_lbl,
+#     head=head,
+#     lr=2e-4,
+#     weight_decay=1e-2,     # crucial with high-dim input
+#     epochs=150,
+#     patience=25,
+# )
 
 
 

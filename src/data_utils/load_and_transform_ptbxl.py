@@ -4,6 +4,10 @@ from pathlib import Path
 from tqdm import tqdm
 import pandas as pd
 import numpy as np
+from scipy import signal
+from sklearn.preprocessing import MinMaxScaler
+from scipy.signal import firwin, filtfilt, decimate, resample, kaiserord
+
 import torch
 import wfdb
 import matplotlib.pyplot as plt
@@ -75,6 +79,166 @@ def derive_superclasses(scp_codes_list, scp_df=None):
     return list(superclasses)
 
 
+
+def preprocess_ecg_2(
+    sig: np.ndarray,
+    fs: int = 500,
+    target_sr: int = 100,
+    low_hz: float = 0.05,
+    high_hz: float = 47.0,
+    numtaps: int | None = None,
+    transition_width_hz: float = 1.0,
+    attenuation_db: float = 60.0,
+    max_taps: int = 8191,
+) -> np.ndarray:
+    """
+    sig: shape (n_leads, n_samples)
+    fs: original sampling rate
+    target_sr: desired sampling rate
+    If numtaps is None, estimate filter length automatically using kaiserord
+    with `transition_width_hz` and `attenuation_db`. Resulting filter length is made odd
+    and clamped to reasonable bounds and signal length.
+    Returns preprocessed signal (n_leads, n_samples_target) dtype float32 in \[-1, 1\].
+    """
+
+    if low_hz <= 0 or high_hz <= 0 or high_hz <= low_hz:
+        raise ValueError("Invalid low_hz/high_hz")
+
+    nyq = fs / 2.0
+    if high_hz >= nyq:
+        raise ValueError("high_hz must be less than Nyquist (fs/2)")
+
+    # Estimate numtaps when not provided
+    if numtaps is None:
+        # normalized transition (fraction of Nyquist)
+        trans_norm = max(transition_width_hz / nyq, 1e-6)
+        # kaiserord returns the required filter order (N) and beta
+        est_n, beta = kaiserord(attenuation_db, trans_norm)
+        # kaiserord returns order -> taps = order + 1
+        est_taps = est_n + 1
+        numtaps = max(3, est_taps)
+
+        # Ensure filter length fits the signal for filtfilt
+        n_samples = sig.shape[1]
+        # maximum taps so that filtfilt's padlen = 3*(numtaps-1) is < n_samples
+        max_taps_for_signal = max(3, (n_samples - 1) // 3 - 1)  #max(3, (n_samples - 1) // 3 + 1)
+        # clamp estimated numtaps
+        numtaps = min(numtaps, max_taps_for_signal)
+
+    # enforce odd length for linear-phase FIR
+    # make odd and >=3
+    if numtaps % 2 == 0:
+        numtaps = max(3, numtaps - 1)
+
+    # clamp to max_taps
+    numtaps = min(numtaps, max_taps)
+
+    # ensure filter length is smaller than signal length (or reduce if needed)
+    n_samples = sig.shape[1]
+    if numtaps >= n_samples:
+        # keep odd and smaller than n_samples
+        numtaps = max(3, (n_samples - 1) if (n_samples - 1) % 2 == 1 else (n_samples - 2))
+
+    # Design FIR bandpass (cutoffs normalized to Nyquist)
+    taps = firwin(numtaps, [low_hz / nyq, high_hz / nyq], pass_zero=False, window="hamming")
+
+    # Zero-phase filtering per lead
+    filtered = np.stack([filtfilt(taps, 1.0, lead) for lead in sig])
+
+    # Resample to target_sr
+    if target_sr != fs:
+        if fs % target_sr == 0:
+            factor = fs // target_sr
+            resampled = np.stack([decimate(lead, factor, ftype='fir', zero_phase=True) for lead in filtered])
+        else:
+            n_target = int(filtered.shape[1] * target_sr / fs)
+            resampled = resample(filtered, n_target, axis=1)
+    else:
+        resampled = filtered
+
+    # Per-lead Min-Max scaling to \[-1, 1\]
+    split_5s_1, split_5s_2 = np.split(resampled, 2, axis=1)
+
+    mins_1 = split_5s_1.min(axis=1, keepdims=True)
+    mins_2 = split_5s_2.min(axis=1, keepdims=True)
+    maxs_1 = split_5s_1.max(axis=1, keepdims=True)
+    maxs_2 = split_5s_2.max(axis=1, keepdims=True)
+    denom_1 = (maxs_1 - mins_1)
+    denom_2 = (maxs_2 - mins_2)
+    denom_1[denom_1 == 0] = 1.0
+    denom_2[denom_2 == 0] = 1.0
+
+    scaled_1 = 2.0 * (split_5s_1 - mins_1) / denom_1 - 1.0
+    scaled_2 = 2.0 * (split_5s_2 - mins_2) / denom_2 - 1.0
+
+    scaled = np.concatenate([scaled_1, scaled_2], axis=1)
+
+
+    return scaled.astype(np.float32)
+
+from typing import Optional
+import numpy as np
+from scipy.signal import butter, sosfiltfilt, decimate, resample
+
+def preprocess_ecg(
+    sig: np.ndarray,
+    fs: int = 500,
+    target_sr: int = 100,
+    low_hz: float = 0.05,
+    high_hz: float = 47.0,
+    iir_order: int = 4,
+) -> np.ndarray:
+    """
+    IIR-based preprocessing for ECG.
+    sig: shape (n_leads, n_samples)
+    fs: original sampling rate
+    target_sr: desired sampling rate
+    low_hz/high_hz: bandpass edges in Hz
+    iir_order: Butterworth order (per overall filter; each SOS section is 2)
+    Returns: (n_leads, n_samples_target) dtype float32 in [-1, 1]
+    """
+    if sig.ndim != 2:
+        raise ValueError("sig must be (n_leads, n_samples)")
+    if low_hz <= 0 or high_hz <= 0 or high_hz <= low_hz:
+        raise ValueError("Invalid low_hz/high_hz")
+    nyq = fs / 2.0
+    if high_hz >= nyq:
+        raise ValueError("high_hz must be < Nyquist (fs/2)")
+
+    # Design Butterworth bandpass in SOS form
+    sos = butter(iir_order, [low_hz / nyq, high_hz / nyq], btype="band", output="sos")
+
+    # Zero-phase filtering per lead
+    # If very short signals, reduce order automatically to avoid pad issues
+    n_leads, n_samples = sig.shape
+    min_samples_for_order = 3 * (iir_order * 2 + 1)  # conservative heuristic
+    if n_samples < min_samples_for_order and iir_order > 2:
+        # lower order to 2
+        sos = butter(2, [low_hz / nyq, high_hz / nyq], btype="band", output="sos")
+
+    filtered = np.stack([sosfiltfilt(sos, lead) for lead in sig])
+
+    # Resample to target_sr
+    if target_sr != fs:
+        if fs % target_sr == 0:
+            factor = fs // target_sr
+            # use FIR-based decimate with zero_phase to avoid aliasing
+            resampled = np.stack([decimate(lead, factor, ftype="fir", zero_phase=True) for lead in filtered])
+        else:
+            n_target = int(filtered.shape[1] * target_sr / fs)
+            resampled = resample(filtered, n_target, axis=1)
+    else:
+        resampled = filtered
+
+    # Per-lead Min-Max scaling to [-1, 1]
+    mins = resampled.min(axis=1, keepdims=True)
+    maxs = resampled.max(axis=1, keepdims=True)
+    denom = (maxs - mins)
+    denom[denom == 0] = 1.0
+    scaled = 2.0 * (resampled - mins) / denom - 1.0
+
+    return scaled.astype(np.float32)
+
 def load_and_transform_ptbxl(
         data_root: Path,
         output_dir: Path,
@@ -86,7 +250,12 @@ def load_and_transform_ptbxl(
 ):
 
     output_dir.mkdir(exist_ok=True)
-    records_root = data_root / "records500"
+    if target_sr == 500:
+        records_root = data_root / "records500"
+    elif target_sr == 100:
+        records_root = data_root / "records100"
+    else:
+        raise ValueError("target_sr must be 100 or 500")
 
     # Load metadata
     db = pd.read_csv(data_root / "ptbxl_database.csv", index_col="ecg_id")
@@ -128,7 +297,13 @@ def load_and_transform_ptbxl(
 
         for ecg_id, row in tqdm(df.iterrows(), total=len(df)):
             # Load signal
-            path = records_root / f"{(ecg_id // 1000) * 1000:05d}" / f"{ecg_id:05d}_hr"
+            if target_sr == 500:
+                path = records_root / f"{(ecg_id // 1000) * 1000:05d}" / f"{ecg_id:05d}_hr"
+            elif target_sr == 100:
+                path = records_root / f"{(ecg_id // 1000) * 1000:05d}" / f"{ecg_id:05d}_lr"
+            else:
+                raise ValueError("target_sr must be 100 or 500")
+
             try:
                 sig, _ = wfdb.rdsamp(str(path))
                 sig = sig.T.astype(np.float32)
@@ -136,13 +311,22 @@ def load_and_transform_ptbxl(
                 print(f"Failed to load {ecg_id}: {e}")
                 dropped += 1
                 continue
-            # Optional downsample to 100 Hz
-            if target_sr == 100:
-                from scipy.signal import decimate
-                sig = np.stack([decimate(lead, 5) for lead in sig])
+            # # Optional downsample to 100 Hz
+            # if target_sr == 100:
+            #     from scipy.signal import decimate
+            #     sig = np.stack([decimate(lead, 5) for lead in sig])
 
-            # Z-normalize per lead
-            sig = (sig - sig.mean(axis=1, keepdims=True)) / (sig.std(axis=1, keepdims=True) + 1e-8)
+            # Filter + resample + min-max scale
+            sig = preprocess_ecg_2(sig,
+                                   fs=target_sr,
+                                   target_sr=target_sr,
+                                   low_hz=0.05, high_hz=47.0,
+                                   numtaps=513 if target_sr==500 else 129,  # use 513 for 500Hz and 129 for 100Hz if fixed
+                                   transition_width_hz=1.0,
+                                   attenuation_db=60.0,max_taps=8191,)
+
+
+            # sig = (sig - sig.mean(axis=1, keepdims=True)) / (sig.std(axis=1, keepdims=True) + 1e-8)
             # signals.append(torch.from_numpy(sig))
 
             # Process labels
@@ -248,6 +432,23 @@ def load_and_transform_ptbxl(
 
     return all_signals, all_meta, stats
 
+def safe_numtaps_for_duration(orig_numtaps: int, fs: int, duration_s: float, scale: float = 2.0) -> int:
+    """
+    Return a filtfilt-safe odd numtaps for a given duration.
+    - orig_numtaps: original numtaps used for a shorter segment
+    - fs: sampling rate (Hz)
+    - duration_s: new segment duration (seconds)
+    - scale: multiplicative factor to increase taps (e.g. 2.0 for ~double)
+    """
+    n_samples = int(round(fs * duration_s))
+    max_taps = max(3, (n_samples - 1) // 3 - 1) #max(3, (n_samples - 1) // 3 + 1)  # from padlen = 3*(numtaps-1) < n_samples
+    desired = int(round(orig_numtaps * scale)) + 1  # +1 if you prefer odd bias (optional)
+    # clamp to max and enforce odd and >= 3
+    desired = min(desired, max_taps)
+    if desired % 2 == 0:
+        desired = max(3, desired - 1)
+    return desired
+
 
 if __name__ == "__main__":
     # Benchmark mode (default)
@@ -255,7 +456,7 @@ if __name__ == "__main__":
         data_root=config.ptb_xl_data_folder,
         output_dir=config.processed_ptb_xl_data_folder,
         max_samples_per_split=None,
-        target_sr = 500,
+        target_sr = 100,
         clinical_mode=False,
         new_challenge_mode=False,
         scp_df_path= config.ptb_xl_data_folder / "scp_statements.csv" #config.ptb_xl_data_folder / "scp_statements.csv",  None

@@ -26,3 +26,30 @@ Then visit the corresponding [link](https://huggingface.co/google/medgemma-4b-it
 chmod 600 ~/.kaggle/kaggle.json
 ``` 
 
+### Download dataset from PhysioNet:
+Run the following command to download the dataset:
+```bash
+kaggle python data_utils/download_ptbxl.py
+```
+This will download the PTB-XL dataset from PhysioNet and save it in the `data/ptbxl` directory.
+
+### Transform dataset:
+Run the following command to transform the dataset:
+```bash
+python data_utils/load_and_transform_ptbxl.py
+```
+This will process the raw dataset and save the transformed data in the `data/ptb-xl-processed` directory
+
+### Make the embeddings:
+Run the following command to create the embeddings:
+```bash
+python embeddings/hubert_emb.py
+```
+This will generate the embeddings and save them in the `data/embeddings` directory.
+
+### Train baseline/model:
+Run the following command to train the model:
+```bash
+python run_baselines.py
+```
+This will start the training process using the config.py .

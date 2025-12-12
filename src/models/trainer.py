@@ -15,9 +15,9 @@ def train_head(
     head=None,
     epochs=500,
     batch_size=128,
-    lr=1e-2,
+    lr=1e-3,
     weight_decay=1e-3,
-    patience=1000,
+    patience=50,
     device="cuda" if torch.cuda.is_available() else "cpu",
     save_path="best_head.pt"
 ):

@@ -107,4 +107,4 @@ def download_ptbxl(
     print(f"Total size: Check with 'du -sh {data_dir}'")
 
 if __name__ == "__main__":
-    download_ptbxl(data_dir=config.ptb_xl_data_folder, high_res_only=True)
+    download_ptbxl(data_dir=config.ptb_xl_data_folder, high_res_only=False)
